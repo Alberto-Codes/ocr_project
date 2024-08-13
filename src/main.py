@@ -4,18 +4,44 @@ import cv2
 import pytesseract
 import re
 
-def preprocess_image(image):
+def preprocess_image(image, debug_dir):
+    # Create debug directory if it doesn't exist
+    os.makedirs(debug_dir, exist_ok=True)
+
     # Convert the PIL Image to a NumPy array (required by OpenCV)
     image_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
-    
+    cv2.imwrite(os.path.join(debug_dir, '1_grayscale.png'), image_array)
+
     # Apply adaptive thresholding
     thresh_image = cv2.adaptiveThreshold(
         image_array, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-    
-    # Denoise the image
-    denoised = cv2.fastNlMeansDenoising(thresh_image, h=10)
-    
-    return denoised
+    cv2.imwrite(os.path.join(debug_dir, '2_adaptive_threshold.png'), thresh_image)
+
+    # Apply morphological operations
+    kernel = np.ones((3,3), np.uint8)
+    morph_image = cv2.morphologyEx(thresh_image, cv2.MORPH_CLOSE, kernel)
+    cv2.imwrite(os.path.join(debug_dir, '3_morphology.png'), morph_image)
+
+    # Apply a stronger denoising
+    denoised = cv2.fastNlMeansDenoising(morph_image, h=20, templateWindowSize=7, searchWindowSize=21)
+    cv2.imwrite(os.path.join(debug_dir, '4_denoised.png'), denoised)
+
+    # Background subtraction
+    bg = cv2.medianBlur(denoised, 21)
+    cv2.imwrite(os.path.join(debug_dir, '5_background.png'), bg)
+
+    diff_image = 255 - cv2.absdiff(denoised, bg)
+    cv2.imwrite(os.path.join(debug_dir, '6_background_removed.png'), diff_image)
+
+    # Normalize the image
+    norm_image = cv2.normalize(diff_image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    cv2.imwrite(os.path.join(debug_dir, '7_normalized.png'), norm_image)
+
+    # Apply Otsu's thresholding
+    _, result = cv2.threshold(norm_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    cv2.imwrite(os.path.join(debug_dir, '8_final_otsu.png'), result)
+
+    return result
 
 def extract_text_from_image(image):
     custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:$.,/-'
