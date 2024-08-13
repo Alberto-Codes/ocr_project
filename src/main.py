@@ -11,41 +11,41 @@ def preprocess_image(image, debug_dir):
     image_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
     cv2.imwrite(os.path.join(debug_dir, '1_grayscale.png'), image_array)
 
-    # Apply adaptive thresholding for binarization
-    thresh_image = cv2.adaptiveThreshold(
-        image_array, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 15, 8)
-    cv2.imwrite(os.path.join(debug_dir, '2_adaptive_threshold.png'), thresh_image)
+    # Apply a gentle Gaussian blur to reduce noise but keep edges
+    blurred_image = cv2.GaussianBlur(image_array, (5, 5), 0)
+    cv2.imwrite(os.path.join(debug_dir, '2_blurred.png'), blurred_image)
 
-    # Apply morphological operations: Closing first to fill small holes, then opening to remove noise
-    kernel_close = np.ones((3, 3), np.uint8)
-    morph_close = cv2.morphologyEx(thresh_image, cv2.MORPH_CLOSE, kernel_close)
-    cv2.imwrite(os.path.join(debug_dir, '3_morph_close.png'), morph_close)
+    # Use edge detection to find strong edges, which typically include text
+    edges = cv2.Canny(blurred_image, 50, 150)
+    cv2.imwrite(os.path.join(debug_dir, '3_edges.png'), edges)
 
-    kernel_open = np.ones((2, 2), np.uint8)
-    morph_open = cv2.morphologyEx(morph_close, cv2.MORPH_OPEN, kernel_open)
-    cv2.imwrite(os.path.join(debug_dir, '4_morph_open.png'), morph_open)
+    # Dilate the edges to make them more pronounced
+    kernel = np.ones((2, 2), np.uint8)
+    dilated_edges = cv2.dilate(edges, kernel, iterations=1)
+    cv2.imwrite(os.path.join(debug_dir, '4_dilated_edges.png'), dilated_edges)
 
-    # Apply stronger denoising to reduce background noise and enhance text
-    denoised = cv2.fastNlMeansDenoising(morph_open, h=30, templateWindowSize=7, searchWindowSize=21)
-    cv2.imwrite(os.path.join(debug_dir, '5_denoised.png'), denoised)
+    # Find contours to isolate areas of interest (i.e., text regions)
+    contours, _ = cv2.findContours(dilated_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Create a mask to isolate text regions
+    mask = np.zeros_like(image_array)
+    cv2.drawContours(mask, contours, -1, (255), thickness=cv2.FILLED)
+    cv2.imwrite(os.path.join(debug_dir, '5_contours_mask.png'), mask)
 
-    # Background subtraction using GaussianBlur instead of medianBlur for smoother results
-    bg = cv2.GaussianBlur(denoised, (21, 21), 0)
-    cv2.imwrite(os.path.join(debug_dir, '6_background.png'), bg)
+    # Apply the mask to the original image to isolate the text areas
+    masked_image = cv2.bitwise_and(image_array, image_array, mask=mask)
+    cv2.imwrite(os.path.join(debug_dir, '6_masked_image.png'), masked_image)
 
-    diff_image = cv2.absdiff(denoised, bg)
-    diff_image = 255 - diff_image
-    cv2.imwrite(os.path.join(debug_dir, '7_background_subtracted.png'), diff_image)
+    # Enhance contrast of the masked image
+    contrast_enhanced = cv2.normalize(masked_image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    cv2.imwrite(os.path.join(debug_dir, '7_contrast_enhanced.png'), contrast_enhanced)
 
-    # Normalize the image to enhance contrast
-    norm_image = cv2.normalize(diff_image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-    cv2.imwrite(os.path.join(debug_dir, '8_normalized.png'), norm_image)
+    # Apply adaptive thresholding for final binarization
+    final_threshold = cv2.adaptiveThreshold(
+        contrast_enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    cv2.imwrite(os.path.join(debug_dir, '8_final_threshold.png'), final_threshold)
 
-    # Apply Otsu's thresholding for final binarization
-    _, result = cv2.threshold(norm_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    cv2.imwrite(os.path.join(debug_dir, '9_final_otsu.png'), result)
-
-    return result
+    return final_threshold
 
 def extract_text_from_image(image):
     custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:$.,/-'
