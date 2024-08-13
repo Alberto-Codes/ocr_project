@@ -7,42 +7,43 @@ import re
 def preprocess_image(image, debug_dir):
     os.makedirs(debug_dir, exist_ok=True)
 
-    # Convert the PIL Image to a NumPy array (required by OpenCV)
+    # Convert the PIL Image to a NumPy array and then to grayscale
     image_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
     cv2.imwrite(os.path.join(debug_dir, '1_grayscale.png'), image_array)
 
-    # Apply adaptive thresholding
+    # Apply adaptive thresholding for binarization
     thresh_image = cv2.adaptiveThreshold(
-        image_array, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        image_array, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 15, 8)
     cv2.imwrite(os.path.join(debug_dir, '2_adaptive_threshold.png'), thresh_image)
 
-    # Apply gentler morphological operations
-    kernel = np.ones((2,2), np.uint8)  # Smaller kernel
-    morph_image = cv2.morphologyEx(thresh_image, cv2.MORPH_OPEN, kernel)  # Changed to opening
-    cv2.imwrite(os.path.join(debug_dir, '3_morphology.png'), morph_image)
+    # Apply morphological operations: Closing first to fill small holes, then opening to remove noise
+    kernel_close = np.ones((3, 3), np.uint8)
+    morph_close = cv2.morphologyEx(thresh_image, cv2.MORPH_CLOSE, kernel_close)
+    cv2.imwrite(os.path.join(debug_dir, '3_morph_close.png'), morph_close)
 
-    # Optional: Add a very light closing operation
-    morph_image = cv2.morphologyEx(morph_image, cv2.MORPH_CLOSE, kernel)
-    cv2.imwrite(os.path.join(debug_dir, '3b_morphology_close.png'), morph_image)
+    kernel_open = np.ones((2, 2), np.uint8)
+    morph_open = cv2.morphologyEx(morph_close, cv2.MORPH_OPEN, kernel_open)
+    cv2.imwrite(os.path.join(debug_dir, '4_morph_open.png'), morph_open)
 
-    # Apply a stronger denoising
-    denoised = cv2.fastNlMeansDenoising(morph_image, h=10, templateWindowSize=7, searchWindowSize=21)
-    cv2.imwrite(os.path.join(debug_dir, '4_denoised.png'), denoised)
+    # Apply stronger denoising to reduce background noise and enhance text
+    denoised = cv2.fastNlMeansDenoising(morph_open, h=30, templateWindowSize=7, searchWindowSize=21)
+    cv2.imwrite(os.path.join(debug_dir, '5_denoised.png'), denoised)
 
-    # Background subtraction
-    bg = cv2.medianBlur(denoised, 21)
-    cv2.imwrite(os.path.join(debug_dir, '5_background.png'), bg)
+    # Background subtraction using GaussianBlur instead of medianBlur for smoother results
+    bg = cv2.GaussianBlur(denoised, (21, 21), 0)
+    cv2.imwrite(os.path.join(debug_dir, '6_background.png'), bg)
 
-    diff_image = 255 - cv2.absdiff(denoised, bg)
-    cv2.imwrite(os.path.join(debug_dir, '6_background_removed.png'), diff_image)
+    diff_image = cv2.absdiff(denoised, bg)
+    diff_image = 255 - diff_image
+    cv2.imwrite(os.path.join(debug_dir, '7_background_subtracted.png'), diff_image)
 
-    # Normalize the image
+    # Normalize the image to enhance contrast
     norm_image = cv2.normalize(diff_image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-    cv2.imwrite(os.path.join(debug_dir, '7_normalized.png'), norm_image)
+    cv2.imwrite(os.path.join(debug_dir, '8_normalized.png'), norm_image)
 
-    # Apply Otsu's thresholding
+    # Apply Otsu's thresholding for final binarization
     _, result = cv2.threshold(norm_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    cv2.imwrite(os.path.join(debug_dir, '8_final_otsu.png'), result)
+    cv2.imwrite(os.path.join(debug_dir, '9_final_otsu.png'), result)
 
     return result
 
