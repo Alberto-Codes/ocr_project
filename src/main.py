@@ -1,103 +1,59 @@
-import cv2
+from pdf2image import convert_from_path
 import numpy as np
-from PIL import Image
+import cv2
 import pytesseract
-from spellchecker import SpellChecker
 import re
 
 def preprocess_image(image):
-    image_array = np.array(image)
-    gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+    # Convert the PIL Image to a NumPy array (required by OpenCV)
+    image_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
     
-    # Increase contrast
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    contrast_image = clahe.apply(gray_image)
+    # Apply adaptive thresholding
+    thresh_image = cv2.adaptiveThreshold(
+        image_array, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
     
-    # Try different thresholding methods
-    _, binary_image = cv2.threshold(contrast_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Denoise the image
+    denoised = cv2.fastNlMeansDenoising(thresh_image, h=10)
     
-    # Denoise (adjust parameters as needed)
-    denoised_image = cv2.fastNlMeansDenoising(binary_image, h=10)
-    
-    # Deskew
-    coords = np.column_stack(np.where(denoised_image > 0))
-    angle = cv2.minAreaRect(coords)[-1]
-    if angle < -45:
-        angle = -(90 + angle)
-    else:
-        angle = -angle
-    
-    (h, w) = denoised_image.shape[:2]
-    center = (w // 2, h // 2)
-    M = cv2.getRotationMatrix2D(center, angle, 1.0)
-    deskewed_image = cv2.warpAffine(denoised_image, M, (w, h),
-                                    flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    
-    return deskewed_image
+    return denoised
 
 def extract_text_from_image(image):
-    # Custom config with whitelist
     custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:$.,/-'
-    
-    # Extract text
     text = pytesseract.image_to_string(image, config=custom_config)
-    
     return text
 
-def extract_micr(image):
-    # Assuming MICR is at the bottom 15% of the image
-    h, w = image.shape
-    bottom = int(h * 0.85)
-    micr_region = image[bottom:h, :]
-    
-    # OCR with MICR-specific config
-    micr_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:$.,/-'
-    micr_text = pytesseract.image_to_string(micr_region, config=micr_config)
-    
-    return micr_text
-
-def correct_spelling(text):
-    spell = SpellChecker()
-    corrected_text = []
-    for word in text.split():
-        corrected_text.append(spell.correction(word))
-    
-    return ' '.join(corrected_text)
-
-def extract_check_info(text):
-    # Define regex patterns for check-specific information
+def extract_check_data(text):
+    amount_pattern = r'\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)'
+    check_number_pattern = r'\bCheck\s+No\.?\s*(\d+)\b'
+    account_pattern = r'\bAccount\s+No\.?\s*(\d+)\b'
+    payee_pattern = r'Pay\s+to\s+the\s+order\s+of\s+([A-Za-z\s]+)'
     date_pattern = r'\b(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\w+\s+\d{1,2},?\s+\d{4})\b'
-    amount_pattern = r'\$\s*\d+(?:,\d{3})*(?:\.\d{2})?'
-    
-    # Extract information
-    date = re.search(date_pattern, text)
-    amount = re.search(amount_pattern, text)
-    
-    return {
-        'date': date.group() if date else None,
-        'amount': amount.group() if amount else None
-    }
 
-# Main function
-def process_check(image_path):
-    image = Image.open(image_path)
+    amount_match = re.search(amount_pattern, text)
+    check_number_match = re.search(check_number_pattern, text)
+    account_match = re.search(account_pattern, text)
+    payee_match = re.search(payee_pattern, text)
+    date_match = re.search(date_pattern, text)
+
+    data = {
+        'amount': amount_match.group(1) if amount_match else None,
+        'check_number': check_number_match.group(1) if check_number_match else None,
+        'account_number': account_match.group(1) if account_match else None,
+        'payee': payee_match.group(1).strip() if payee_match else None,
+        'date': date_match.group() if date_match else None
+    }
+    return data
+
+# Extract images from the PDF
+pdf_path = './data/document_filename.pdf'
+images = convert_from_path(pdf_path)
+
+# Process each image from the PDF
+for i, image in enumerate(images):
     processed_image = preprocess_image(image)
-    
     extracted_text = extract_text_from_image(processed_image)
-    micr_text = extract_micr(processed_image)
-    
-    corrected_text = correct_spelling(extracted_text)
-    
-    check_info = extract_check_info(corrected_text)
-    
-    return {
-        'full_text': corrected_text,
-        'micr': micr_text,
-        'date': check_info['date'],
-        'amount': check_info['amount']
-    }
+    check_data = extract_check_data(extracted_text)
+    print(f'Extracted Data from page {i+1}: {check_data}')
 
-# Usage
-image_path = './data/check_image.jpg'
-result = process_check(image_path)
-print(result)
+# Optionally, you can save the processed image to check the preprocessing result
+# cv2.imwrite(f'processed_image_{i+1}.png', processed_image)
