@@ -36,14 +36,24 @@ def preprocess_image(image, debug_dir):
     masked_image = cv2.bitwise_and(image_array, image_array, mask=mask)
     cv2.imwrite(os.path.join(debug_dir, '6_masked_image.png'), masked_image)
 
-    # Enhance contrast of the masked image
-    contrast_enhanced = cv2.normalize(masked_image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-    cv2.imwrite(os.path.join(debug_dir, '7_contrast_enhanced.png'), contrast_enhanced)
+    # Apply bilateral filtering to reduce noise but keep edges sharp
+    bilateral_filtered = cv2.bilateralFilter(masked_image, d=9, sigmaColor=75, sigmaSpace=75)
+    cv2.imwrite(os.path.join(debug_dir, '7_bilateral_filtered.png'), bilateral_filtered)
 
-    # Apply adaptive thresholding for final binarization
-    final_threshold = cv2.adaptiveThreshold(
-        contrast_enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-    cv2.imwrite(os.path.join(debug_dir, '8_final_threshold.png'), final_threshold)
+    # Enhance contrast of the bilateral filtered image
+    contrast_enhanced = cv2.normalize(bilateral_filtered, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    cv2.imwrite(os.path.join(debug_dir, '8_contrast_enhanced.png'), contrast_enhanced)
+
+    # Use contour filtering to remove small noise dots that are not part of text
+    contours, _ = cv2.findContours(contrast_enhanced, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        if cv2.contourArea(cnt) < 50:  # Filter out small contours that are likely noise
+            cv2.drawContours(contrast_enhanced, [cnt], -1, (0), thickness=cv2.FILLED)
+    cv2.imwrite(os.path.join(debug_dir, '9_filtered_noise.png'), contrast_enhanced)
+
+    # Apply Otsu's thresholding for final binarization
+    _, final_threshold = cv2.threshold(contrast_enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    cv2.imwrite(os.path.join(debug_dir, '10_final_threshold.png'), final_threshold)
 
     return final_threshold
 
