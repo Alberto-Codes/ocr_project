@@ -5,7 +5,6 @@ import pytesseract
 import re
 
 def preprocess_image(image, debug_dir):
-    # Create debug directory if it doesn't exist
     os.makedirs(debug_dir, exist_ok=True)
 
     # Convert the PIL Image to a NumPy array (required by OpenCV)
@@ -17,13 +16,17 @@ def preprocess_image(image, debug_dir):
         image_array, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
     cv2.imwrite(os.path.join(debug_dir, '2_adaptive_threshold.png'), thresh_image)
 
-    # Apply morphological operations
-    kernel = np.ones((3,3), np.uint8)
-    morph_image = cv2.morphologyEx(thresh_image, cv2.MORPH_CLOSE, kernel)
+    # Apply gentler morphological operations
+    kernel = np.ones((2,2), np.uint8)  # Smaller kernel
+    morph_image = cv2.morphologyEx(thresh_image, cv2.MORPH_OPEN, kernel)  # Changed to opening
     cv2.imwrite(os.path.join(debug_dir, '3_morphology.png'), morph_image)
 
+    # Optional: Add a very light closing operation
+    morph_image = cv2.morphologyEx(morph_image, cv2.MORPH_CLOSE, kernel)
+    cv2.imwrite(os.path.join(debug_dir, '3b_morphology_close.png'), morph_image)
+
     # Apply a stronger denoising
-    denoised = cv2.fastNlMeansDenoising(morph_image, h=20, templateWindowSize=7, searchWindowSize=21)
+    denoised = cv2.fastNlMeansDenoising(morph_image, h=10, templateWindowSize=7, searchWindowSize=21)
     cv2.imwrite(os.path.join(debug_dir, '4_denoised.png'), denoised)
 
     # Background subtraction
