@@ -18,19 +18,23 @@ for page_number, page in enumerate(pages, start=1):
     # Convert to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Apply Otsu's thresholding to binarize the image
-    _, binary_image = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Step 1: Apply Gaussian Blur to smooth the image and reduce noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Reduce noise with bilateral filtering
-    denoised_image = cv2.bilateralFilter(binary_image, d=9, sigmaColor=75, sigmaSpace=75)
+    # Step 2: Apply CLAHE for contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced_contrast = clahe.apply(blurred)
 
-    # Morphological opening to remove small noise
-    kernel = np.ones((2, 2), np.uint8)  # Kernel size can be adjusted
-    clean_image = cv2.morphologyEx(denoised_image, cv2.MORPH_OPEN, kernel)
+    # Step 3: Otsu's thresholding after contrast enhancement
+    _, binary_image = cv2.threshold(enhanced_contrast, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # OCR with Tesseract
+    # Step 4: Morphological closing to strengthen characters
+    kernel = np.ones((2, 2), np.uint8)
+    closed_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel)
+
+    # Step 5: OCR with Tesseract
     custom_config = r'--oem 3 --psm 6'
-    extracted_text = pytesseract.image_to_string(clean_image, config=custom_config)
+    extracted_text = pytesseract.image_to_string(closed_image, config=custom_config)
 
     # Save the extracted text
     with open(f'page_{page_number}.txt', 'w', encoding='utf-8') as text_file:
