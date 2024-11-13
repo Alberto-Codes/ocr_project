@@ -18,17 +18,20 @@ for page_number, page in enumerate(pages, start=1):
     # Convert to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Apply Otsu's thresholding
+    # Apply Otsu's thresholding to binarize the image
     _, binary_image = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # Invert image if text is white on black
-    if np.mean(binary_image) > 127:
-        binary_image = cv2.bitwise_not(binary_image)
+    # Reduce noise with bilateral filtering
+    denoised_image = cv2.bilateralFilter(binary_image, d=9, sigmaColor=75, sigmaSpace=75)
 
-    # Apply OCR
+    # Morphological opening to remove small noise
+    kernel = np.ones((2, 2), np.uint8)  # Kernel size can be adjusted
+    clean_image = cv2.morphologyEx(denoised_image, cv2.MORPH_OPEN, kernel)
+
+    # OCR with Tesseract
     custom_config = r'--oem 3 --psm 6'
-    extracted_text = pytesseract.image_to_string(binary_image, config=custom_config)
+    extracted_text = pytesseract.image_to_string(clean_image, config=custom_config)
 
-    # Save or process the extracted text
+    # Save the extracted text
     with open(f'page_{page_number}.txt', 'w', encoding='utf-8') as text_file:
         text_file.write(extracted_text)
