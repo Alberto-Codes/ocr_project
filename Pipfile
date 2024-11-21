@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pandas = "*"
+openpyxl = "*"
+pdf2image = "*"
+opencv-python = "*"
+pytesseract = "*"
+python-dotenv = "*"
+
+[dev-packages]
+black = "*"
+isort = "*"
+jupyter = "*"
+notebook = "*"
+ipykernel = "*"
+
+[requires]
+python_version = "3.12"
